@@ -31,7 +31,7 @@ orders-58f5d94456-jgskm   1/1     Running   3 (4d16h ago)   72d   10.42.150.167 
 orders-58f5d94456-qkcmp   1/1     Running   3 (4d16h ago)   72d   10.42.185.86    ip-10-42-181-156.eu-west-1.compute.internal   <none>           <none>
 ```
 
-For this lab, we use observability tools (OpenTelemetry and AWS X-Ray) as well as a 'zone-communication-analyzer' Script that analyzes and displays the traffic flow to help us visualize the behavior of Traffic Distribution.
+For this lab, we use observability tools (OpenTelemetry and AWS X-Ray) as well as a `zone-communication-analyzer` Script that analyzes and displays the traffic flow to help us visualize the behavior of Traffic Distribution.
 
 As part of the preparation of the Lab environment which we ran previously there were different [AWS Distro for Open Telemetry(ADOT)](https://aws.amazon.com/otel/) components that got deployed in the EKS Cluster, the OpenTelemetry Collector deployed collect traces from Checkout and Orders components, exports it to AWS X-Ray and then the zone-communication-analyzer script will fetch the traces and analyze it to display traffic flow and show if it is SAME-ZONE (Checkout and Orders pod are in same zone) or CROSS-ZONE (Checkout and Orders pod are in different zone).
 
