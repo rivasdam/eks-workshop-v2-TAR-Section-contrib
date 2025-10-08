@@ -3,7 +3,7 @@ title: "Configuring Traffic Distribution"
 sidebar_position: 20
 ---
 
-In this lab we are going to confirm the default traffic routing setup for the sample application with a focus on routing between the UI and Catalog components through a Service.
+In this lab we are going to confirm the default traffic routing setup for the sample application with a focus on routing between the Checkout and Orders components through a Service.
 
 Currently there are 3 nodes deployed across the 3 different AZs, you can confirm that with the below command: 
 
@@ -16,24 +16,24 @@ ip-10-42-141-139.eu-west-1.compute.internal   eu-west-1b
 ip-10-42-181-156.eu-west-1.compute.internal   eu-west-1c
 ```
 
-Preparing the environment at the start will have scaled UI and Catalog components to three replicas each. Let’s verify we see 3 pods for both components of the application with each pod running on a node in each of the 3 AZs:
+Preparing the environment at the start will have scaled Checkout and Orders components to three replicas each. Let’s verify we see 3 pods for both components of the application with each pod running on a node in each of the 3 AZs:
 
 
 ```bash
-$ kubectl get pods -n ui -o wide && kubectl get pods -n catalog -o wide
+$ kubectl get pods -n checkout -o wide && kubectl get pods -n orders -o wide
 NAME                  READY   STATUS    RESTARTS        AGE   IP              NODE                                          NOMINATED NODE   READINESS GATES
-ui-5f454686f8-9qfp4   1/1     Running   1 (4d16h ago)   72d   10.42.124.229   ip-10-42-117-145.eu-west-1.compute.internal   <none>           <none>
-ui-5f454686f8-ltj5c   1/1     Running   1 (4d16h ago)   72d   10.42.150.160   ip-10-42-141-139.eu-west-1.compute.internal   <none>           <none>
-ui-5f454686f8-tcflp   1/1     Running   1 (4d16h ago)   72d   10.42.185.85    ip-10-42-181-156.eu-west-1.compute.internal   <none>           <none>
+checkout-5f454686f8-9qfp4   1/1     Running   1 (4d16h ago)   72d   10.42.124.229   ip-10-42-117-145.eu-west-1.compute.internal   <none>           <none>
+checkout-5f454686f8-ltj5c   1/1     Running   1 (4d16h ago)   72d   10.42.150.160   ip-10-42-141-139.eu-west-1.compute.internal   <none>           <none>
+checkout-5f454686f8-tcflp   1/1     Running   1 (4d16h ago)   72d   10.42.185.85    ip-10-42-181-156.eu-west-1.compute.internal   <none>           <none>
 NAME                       READY   STATUS    RESTARTS        AGE   IP              NODE                                          NOMINATED NODE   READINESS GATES
-catalog-58f5d94456-2ltxj   1/1     Running   3 (4d16h ago)   72d   10.42.116.225   ip-10-42-117-145.eu-west-1.compute.internal   <none>           <none>
-catalog-58f5d94456-jgskm   1/1     Running   3 (4d16h ago)   72d   10.42.150.167   ip-10-42-141-139.eu-west-1.compute.internal   <none>           <none>
-catalog-58f5d94456-qkcmp   1/1     Running   3 (4d16h ago)   72d   10.42.185.86    ip-10-42-181-156.eu-west-1.compute.internal   <none>           <none>
+orders-58f5d94456-2ltxj   1/1     Running   3 (4d16h ago)   72d   10.42.116.225   ip-10-42-117-145.eu-west-1.compute.internal   <none>           <none>
+orders-58f5d94456-jgskm   1/1     Running   3 (4d16h ago)   72d   10.42.150.167   ip-10-42-141-139.eu-west-1.compute.internal   <none>           <none>
+orders-58f5d94456-qkcmp   1/1     Running   3 (4d16h ago)   72d   10.42.185.86    ip-10-42-181-156.eu-west-1.compute.internal   <none>           <none>
 ```
 
-For this lab, we use observability tools (OpenTelemetry and AWS X-Ray) to help us visualize the behavior of Traffic Distribution.
+For this lab, we use observability tools (OpenTelemetry and AWS X-Ray) as well as a 'zone-communication-analyzer' Script that analyzes and displays the traffic flow to help us visualize the behavior of Traffic Distribution.
 
-As part of the preparation of the Lab environment which we ran previously there were different [AWS Distro for Open Telemetry(ADOT)](https://aws.amazon.com/otel/) components that got deployed in the EKS Cluster that will collect traces from UI and Catalog components and export it to AWS X-Ray to allow us visualize the traffic flow. 
+As part of the preparation of the Lab environment which we ran previously there were different [AWS Distro for Open Telemetry(ADOT)](https://aws.amazon.com/otel/) components that got deployed in the EKS Cluster, the OpenTelemetry Collector deployed collect traces from Checkout and Orders components, exports it to AWS X-Ray and then the zone-communication-analyzer script will fetch the traces and analyze it to display traffic flow and show if it is SAME-ZONE (Checkout and Orders pod are in same zone) or CROSS-ZONE (Checkout and Orders pod are in different zone).
 
 Let’s confirm that they are running:
 
@@ -60,27 +60,53 @@ adot   deployment   0.104.0   1/1     72d   public.ecr.aws/aws-observability/aws
 
 
 
-Now that we have 3 pods each of the UI and Catalog component we will generate a load test to simulate traffic between them to see how traffic is routed. We’d use the [hey](https://github.com/rakyll/hey) program to generate HTTP Requests traffic to UI’s load balancer by running the below command:
+Now that we have 3 pods each of the Checkout and Orders component we will generate a load test using the Artillery load generator 
 
 
-
-```bash
-$ export UI_ENDPOINT=$(kubectl get service -n ui ui-nlb -o jsonpath="{.status.loadBalancer.ingress[*].hostname}{'\n'}")
-$ kubectl run load-generator \
---image=williamyeh/hey:latest \
---restart=Never -- -c 10 -q 5 -z 60m http://$UI_ENDPOINT/home
+```bash test=false
+$ cat <<EOF | kubectl apply -f -
+apiVersion: v1
+kind: Pod
+metadata:
+  name: load-generator
+  namespace: other
+spec:
+  containers:
+  - name: artillery
+    image: artilleryio/artillery:2.0.0-31
+    args:
+    - "run"
+    - "-t"
+    - "http://ui.ui.svc"
+    - "/scripts/scenario.yml"
+    volumeMounts:
+    - name: scripts
+      mountPath: /scripts
+  initContainers:
+  - name: setup
+    image: public.ecr.aws/aws-containers/retail-store-sample-utils:load-gen.1.2.1
+    command:
+    - bash
+    args:
+    - -c
+    - "cp /artillery/* /scripts"
+    volumeMounts:
+    - name: scripts
+      mountPath: "/scripts"
+  volumes:
+  - name: scripts
+    emptyDir: {}
+EOF
 ```
 
 
-Once this is done navigate to the X-Ray console where you’d find a visual Trace Map of the traffic flow from client to ui to catalog: 
+Once this is done run the zone-communication-analyzer script
 
-<ConsoleButton
-  url="https://console.aws.amazon.com/cloudwatch/home#xray:service-map/"
-  service="cloudwatch"
-  label="Open X-Ray console"
-/>
+```bash
+$ sleep 60 && zone-communication-analyzer.sh 1
+```
 
-You’d notice from the Trace map that traffic from each of the UI pods is sent to each of the 3 Catalog pods in all 3 AZs.
+You’d notice from the display output that traffic from each of the Checkout pods is sent to each of the Orders pods in all 3 AZs.
 
 
 ![Architecture Diagram](./assets/trafficdistribution-before.png)
